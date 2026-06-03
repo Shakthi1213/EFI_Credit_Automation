@@ -24,6 +24,7 @@ import plotly.express as px
 
 # ── local modules ────────────────────────────────────────────────────────────
 from src.pdf_parser   import extract_from_pdf, extract_from_excel
+from src.financial_mapper import map_financial_line_items
 from src.ratios       import calculate_ratios, ratio_summary
 from src.scoring      import score_nbfc
 from src.flags        import get_flags, flags_to_text, SEVERITY_COLOR
@@ -265,7 +266,8 @@ def page_single():
                 else:
                     result = extract_from_excel(tmp_path)
 
-            extracted = result["data"] or {}
+            mapping_result = map_financial_line_items(result)
+            extracted = mapping_result["mapped_data"] or {}
 
             # store results for the next pass
             st.session_state["latest_extracted"] = extracted
@@ -273,6 +275,9 @@ def page_single():
                 "method": result.get("method", "Unknown"),
                 "pages_used": result.get("pages_used", "—"),
                 "warnings": result.get("warnings", []),
+                "mapping_confidence": mapping_result.get("mapping_confidence", 0.0),
+                "unmatched_fields": mapping_result.get("unmatched_fields", []),
+                "mapping_details": mapping_result.get("mapping_details", {}),
             }
 
             st.session_state["pending_metadata"] = {
@@ -328,6 +333,9 @@ def page_single():
         "method": "Unknown",
         "pages_used": "—",
         "warnings": [],
+        "mapping_confidence": 0.0,
+        "unmatched_fields": [],
+        "mapping_details": {},
     }
 
     # If the uploaded file did not contain these fields, keep the manual
@@ -340,15 +348,20 @@ def page_single():
     # ── Status ───────────────────────────────────────────────────────────────
     with st.expander("📄 Extraction Status", expanded=False):
         st.write(f"**Method:** {result_meta['method']}  |  **Pages/Rows:** {result_meta['pages_used']}")
+        st.write(f"**Mapping confidence:** {result_meta.get('mapping_confidence', 0.0):.2f}")
         if result_meta["warnings"]:
             for w in result_meta["warnings"]:
                 st.warning(w)
-        st.write(f"**Fields extracted:** {len(extracted)}")
+        st.write(f"**Mapped fields:** {len(extracted)}")
         if extracted:
             st.dataframe(
                 pd.DataFrame(list(extracted.items()), columns=["Field", "Value"]),
                 use_container_width=True,
             )
+        unmatched_fields = result_meta.get("unmatched_fields", [])
+        if unmatched_fields:
+            st.write("**Unmapped fields:**")
+            st.write(unmatched_fields)
 
     _run_analysis(extracted, company_name, quarter)
 

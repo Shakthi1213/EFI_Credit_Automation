@@ -16,9 +16,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from rapidfuzz import fuzz, process
+from .utils import clean_numeric
 
 
-FUZZY_THRESHOLD = 86
+FUZZY_THRESHOLD = 85
 LOW_CONFIDENCE_THRESHOLD = 0.9
 
 
@@ -31,13 +32,24 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Loan Book", "Gross Loan Book", "Total Loan Book", "Loan Assets",
         "Loan Portfolio", "Gross Loan Portfolio", "Portfolio Outstanding",
         "Portfolio Size", "Assets Under Finance", "AUM / Loan Book",
-        "AUM and Loan Book", "Total Managed Portfolio",
+        "AUM and Loan Book", "Total Managed Portfolio", "Gross Assets Under Management",
+        "GLP", "Average Assets Under Management", "aum",
+    ],
+    "average_aum": [
+        "Average AUM", "Avg AUM", "Average Assets Under Management",
+        "Average Loan Book", "Average Gross Loan Portfolio",
     ],
     "aum_on_book": [
         "On Book AUM", "On-book AUM", "On Balance Sheet AUM",
         "Own Book AUM", "Own Loan Book", "On Book Portfolio",
         "On Balance Sheet Portfolio", "Owned Portfolio", "Book AUM",
         "On Book Assets Under Management", "On-book Loan Assets",
+        "On Book Assets", "Loan Assets",
+    ],
+    "average_on_book_aum": [
+        "Average On Book AUM", "Average On-book AUM",
+        "Average On Balance Sheet AUM", "Average Loan Assets",
+        "Average On Book Assets",
     ],
     "aum_off_book": [
         "Off Book AUM", "Off-book AUM", "Off Balance Sheet AUM",
@@ -45,6 +57,7 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Securitized Portfolio", "Co Lending AUM", "Co-lending AUM",
         "DA Portfolio", "Direct Assignment Portfolio", "BC Portfolio",
         "Business Correspondent Portfolio", "Off Book Loan Book",
+        "Off-book Assets", "Securitized Assets", "Managed Portfolio",
     ],
     "disbursements": [
         "Disbursement", "Disbursements", "Loan Disbursement",
@@ -62,6 +75,11 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Equity", "Owned Funds", "Book Value Equity",
         "Equity Share Capital and Reserves", "Equity Capital and Reserves",
         "Net Worth / Equity", "Net Worth Equity", "Capital and Reserves",
+        "Net Owned Funds", "Book Value",
+    ],
+    "average_net_worth": [
+        "Average Net Worth", "Avg Net Worth", "Average Shareholders Equity",
+        "Average Equity", "Average Net Owned Funds",
     ],
     "capital_infusion": [
         "Capital Infusion", "Capital Infused", "Equity Infusion",
@@ -75,6 +93,7 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Cash and Balances with Banks", "Balances with Banks",
         "Cash and Cash Equivalents", "Cash Equivalents", "Bank Balances",
         "Cash Balance", "Cash at Bank", "Liquid Cash", "Cash / Bank",
+        "cash_bank",
     ],
     "borrowings": [
         "Borrowings", "Borrowing", "Total Borrowings", "Debt",
@@ -85,6 +104,11 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Debt Securities", "NCD", "NCDs", "Non Convertible Debentures",
         "Non-Convertible Debentures", "Commercial Paper", "CP Borrowings",
         "Term Loans", "External Borrowings", "Refinance Borrowings",
+        "Loans Borrowed", "Outstanding Borrowings", "total_debt",
+    ],
+    "average_borrowings": [
+        "Average Borrowings", "Average Debt", "Average Total Debt",
+        "Avg Borrowings", "Avg Debt", "Average Outstanding Borrowings",
     ],
     "total_assets": [
         "Total Assets", "Assets Total", "Asset Base", "Total Asset Base",
@@ -118,6 +142,13 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Total Income", "Income from Operations", "Gross Income",
         "Net Revenue", "Revenue / Total Income", "Business Income",
         "Income from Financing Activities", "Income from Lending Operations",
+        "revenue",
+    ],
+    "core_operating_income": [
+        "Core Operating Income", "Interest Income", "Net Interest Income",
+        "Finance Income", "Loan Income", "Lending Income",
+        "Interest Earned", "Income from Lending", "Income on Loans",
+        "Interest on Loans", "Interest on Advances", "Financing Income",
     ],
     "derecognition_gain": [
         "Derecognition Gain", "Gain on Derecognition", "Gain on Assignment",
@@ -132,6 +163,7 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Borrowing Cost", "Borrowing Costs", "Cost of Borrowings",
         "Interest Cost", "Interest Paid", "Interest on Borrowings",
         "Finance Charges", "Interest and Finance Charges", "Funding Cost",
+        "Cost of Borrowings", "interest_expense",
     ],
     "operating_expenses": [
         "Operating Expenses", "Opex", "Operating Cost", "Operating Costs",
@@ -213,6 +245,17 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Total Gross NPA", "Gross Credit Impaired Assets",
         "Gross Non Performing Advances",
     ],
+    "stage_3_assets": [
+        "Gross NPA", "GNPA", "NPA", "Gross Stage 3",
+        "Stage 3 Assets", "Stage III Assets", "Stage-III Assets",
+        "Stage-3 Assets", "Stage Three Assets", "IND AS Stage 3 Assets",
+        "Ind-AS Stage 3 Assets", "Stage 3 Loans", "Stage III Loans",
+        "Credit Impaired Assets", "Impaired Assets",
+        "Gross Stage 3 Assets", "Gross Stage III Assets",
+        "Gross Stage-III Assets", "Gross Stage-3 Assets",
+        "Gross Non Performing Assets", "Gross Non-Performing Assets",
+        "gnpa_amt",
+    ],
     "nnpa_amt": [
         "NNPA", "Net NPA", "Net NPAs", "Net NPA Amount", "Net NPA Amt",
         "Net Non Performing Asset", "Net Non Performing Assets",
@@ -220,6 +263,11 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Net Impaired Loans", "Net NPL", "Net NPLs", "Net Stage 3 Assets",
         "Net Stage III Assets", "Net Stage-III Assets", "Net Stage-3 Assets",
         "Stage 3 Net Exposure", "Total Net NPA", "Net Credit Impaired Assets",
+    ],
+    "nnpa": [
+        "Net NPA", "NNPA", "Net Stage 3", "Net Stage III",
+        "Net Stage-3", "Net Non Performing Assets", "Net NPA Amount",
+        "nnpa_amt",
     ],
     "pcr": [
         "PCR", "Provision Coverage", "Provision Coverage Ratio",
@@ -246,12 +294,6 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "IND AS Stage 2 Assets", "Ind-AS Stage 2 Assets",
         "Stage 2 Loans", "Stage II Loans", "Stage 2 Exposure",
         "Underperforming Assets", "SICR Assets",
-    ],
-    "stage_3_assets": [
-        "Stage 3 Assets", "Stage III Assets", "Stage-III Assets",
-        "Stage-3 Assets", "Stage Three Assets", "IND AS Stage 3 Assets",
-        "Ind-AS Stage 3 Assets", "Stage 3 Loans", "Stage III Loans",
-        "Credit Impaired Assets", "Impaired Assets",
     ],
     "write_offs": [
         "Write Off", "Write Offs", "Write-off", "Write-offs",
@@ -300,6 +342,15 @@ FINANCIAL_MAPPING: dict[str, list[str]] = {
         "Capital to Risk Weighted Assets Ratio",
         "Capital to Risk-Weighted Assets Ratio",
         "Capital to Risk Assets Ratio", "Total Capital Adequacy Ratio",
+        "car",
+    ],
+    "capital": [
+        "Capital", "Tier 1 Capital", "Regulatory Capital", "Own Funds",
+        "Total Capital", "Eligible Capital",
+    ],
+    "risk_weighted_assets": [
+        "Risk Weighted Assets", "Risk-Weighted Assets", "RWA",
+        "Risk Adjusted Assets", "Risk Weighted Asset",
     ],
     "tier_1_capital": [
         "Tier 1 Capital", "Tier I Capital", "Tier One Capital",
@@ -479,6 +530,8 @@ def map_financial_line_items(data_dict: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data_dict, dict):
         raise TypeError("map_financial_line_items expects a dictionary input.")
 
+    data_dict = clean_financial_data(data_dict)
+
     mapped_data: dict[str, Any] = {}
     unmatched_fields: list[str] = []
     suspicious_fields: list[dict[str, Any]] = []
@@ -547,6 +600,57 @@ def map_financial_line_items(data_dict: dict[str, Any]) -> dict[str, Any]:
         "unmatched_fields": unmatched_fields,
         "mapping_confidence": mapping_confidence,
         "mapping_details": field_matches,
+    }
+
+
+def clean_financial_data(raw_output: dict[str, Any]) -> dict[str, Any]:
+    """
+    Return only clean financial key-value pairs from parser output.
+
+    PDF/Excel extractors return a wrapper containing ``data``, ``raw_pairs``,
+    ``pages_used``, ``method``, and ``warnings``. Mapping must operate on the
+    financial payload, never on those wrapper metadata keys.
+    """
+    if not isinstance(raw_output, dict):
+        raise TypeError("clean_financial_data expects a dictionary input.")
+
+    if "data" in raw_output and isinstance(raw_output.get("data"), dict):
+        source = raw_output["data"]
+    else:
+        source = raw_output
+
+    clean_data: dict[str, Any] = {}
+    wrapper_keys = {"data", "raw_pairs", "pages_used", "method", "warnings"}
+
+    for key, value in source.items():
+        if key in wrapper_keys or _is_missing(value):
+            continue
+
+        cleaned = clean_numeric(value)
+        clean_data[str(key).strip()] = cleaned if cleaned is not None else value
+
+    return clean_data
+
+
+def build_financial_extraction_report(raw_output: dict[str, Any]) -> dict[str, Any]:
+    """
+    Build the enterprise PDF extraction payload consumed by downstream layers.
+
+    Output shape:
+    ``{"mapped_data": ..., "unmapped_fields": ..., "confidence_score": ..., "ratios": ...}``
+    """
+    from .ratios import calculate_ratios
+
+    mapping_result = map_financial_line_items(raw_output)
+    ratio_result = calculate_ratios(mapping_result["mapped_data"])
+
+    return {
+        "mapped_data": mapping_result["mapped_data"],
+        "unmapped_fields": mapping_result["unmatched_fields"],
+        "confidence_score": mapping_result["mapping_confidence"],
+        "ratios": ratio_result["calculated_ratios"],
+        "mapping_metadata": mapping_result["mapping_metadata"],
+        "ratio_metadata": ratio_result["ratio_metadata"],
     }
 
 

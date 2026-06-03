@@ -210,10 +210,10 @@ def _ratio_definitions() -> tuple[RatioDefinition, ...]:
         RatioDefinition(
             field="yield_pct",
             category="profitability",
-            required_inputs=("operating_revenue", "aum_on_book"),
+            required_inputs=("core_operating_income", "aum_on_book"),
             calculator=lambda d: _percentage(
-                d.get("operating_revenue"),
-                d.get("aum_on_book"),
+                _core_operating_income(d),
+                _average_on_book_aum(d),
             ),
         ),
         RatioDefinition(
@@ -222,19 +222,19 @@ def _ratio_definitions() -> tuple[RatioDefinition, ...]:
             required_inputs=("finance_cost", "aum_on_book"),
             calculator=lambda d: _percentage(
                 d.get("finance_cost"),
-                d.get("aum_on_book"),
+                _average_on_book_aum(d),
             ),
         ),
         RatioDefinition(
             field="nim_pct",
             category="profitability",
-            required_inputs=("operating_revenue", "finance_cost", "aum_on_book"),
+            required_inputs=("core_operating_income", "finance_cost", "aum_on_book"),
             calculator=_calculate_nim_pct,
         ),
         RatioDefinition(
             field="credit_cost_pct",
             category="asset_quality",
-            required_inputs=("aum_total",),
+            required_inputs=("write_offs", "provisions", "aum_total"),
             calculator=_calculate_credit_cost_pct,
         ),
         RatioDefinition(
@@ -247,7 +247,7 @@ def _ratio_definitions() -> tuple[RatioDefinition, ...]:
             field="roe_pct",
             category="profitability",
             required_inputs=("pat", "net_worth"),
-            calculator=lambda d: _percentage(d.get("pat"), d.get("net_worth")),
+            calculator=lambda d: _percentage(d.get("pat"), _average_net_worth(d)),
         ),
         RatioDefinition(
             field="avg_cost_of_borrowing_pct",
@@ -255,7 +255,7 @@ def _ratio_definitions() -> tuple[RatioDefinition, ...]:
             required_inputs=("finance_cost", "borrowings"),
             calculator=lambda d: _percentage(
                 d.get("finance_cost"),
-                d.get("borrowings"),
+                _average_borrowings(d),
             ),
         ),
         RatioDefinition(
@@ -285,11 +285,11 @@ def _ratio_definitions() -> tuple[RatioDefinition, ...]:
 def _calculate_nim_pct(data: dict[str, float | None]) -> float | None:
     yield_pct = data.get("yield_pct")
     if yield_pct is None:
-        yield_pct = _percentage(data.get("operating_revenue"), data.get("aum_on_book"))
+        yield_pct = _percentage(_core_operating_income(data), _average_on_book_aum(data))
 
     cost_of_funds_pct = data.get("cost_of_funds_pct")
     if cost_of_funds_pct is None:
-        cost_of_funds_pct = _percentage(data.get("finance_cost"), data.get("aum_on_book"))
+        cost_of_funds_pct = _percentage(data.get("finance_cost"), _average_on_book_aum(data))
 
     if yield_pct is None or cost_of_funds_pct is None:
         return None
@@ -303,7 +303,7 @@ def _calculate_credit_cost_pct(data: dict[str, float | None]) -> float | None:
     if provisions == 0 and write_offs == 0:
         return None
 
-    return _percentage(provisions + write_offs, data.get("aum_total"))
+    return _percentage(provisions + write_offs, _average_aum(data))
 
 
 def _calculate_nnpa_pct(data: dict[str, float | None]) -> float | None:
@@ -339,6 +339,34 @@ def _calculate_car_pct(data: dict[str, float | None]) -> float | None:
     )
 
     return _percentage(capital, risk_weighted_assets)
+
+
+def _core_operating_income(data: dict[str, float | None]) -> float | None:
+    return _first_available(
+        data,
+        (
+            "core_operating_income",
+            "net_interest_income",
+            "interest_income",
+            "operating_revenue",
+        ),
+    )
+
+
+def _average_aum(data: dict[str, float | None]) -> float | None:
+    return _first_available(data, ("average_aum", "aum_total"))
+
+
+def _average_on_book_aum(data: dict[str, float | None]) -> float | None:
+    return _first_available(data, ("average_on_book_aum", "aum_on_book", "aum_total"))
+
+
+def _average_net_worth(data: dict[str, float | None]) -> float | None:
+    return _first_available(data, ("average_net_worth", "net_worth"))
+
+
+def _average_borrowings(data: dict[str, float | None]) -> float | None:
+    return _first_available(data, ("average_borrowings", "borrowings"))
 
 
 def _legacy_ratio_aliases(
