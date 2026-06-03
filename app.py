@@ -266,7 +266,7 @@ def page_single():
                 else:
                     result = extract_from_excel(tmp_path)
 
-            mapping_result = map_financial_line_items(result)
+            mapping_result = map_financial_line_items(result["data"])
             extracted = mapping_result["mapped_data"] or {}
 
             # store results for the next pass
