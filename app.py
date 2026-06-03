@@ -569,10 +569,9 @@ def page_portfolio():
     # ── Table ─────────────────────────────────────────────────────────────────
     st.markdown("### Company Scores")
     st.dataframe(
-        res_df.sort_values("Score").style
-            .background_gradient(subset=["Score"], cmap="RdYlGn"),
-        use_container_width=True,
-    )
+    res_df.sort_values("Score"),
+    use_container_width=True,
+)
 
     # ── Download results ──────────────────────────────────────────────────────
     csv = res_df.to_csv(index=False)
